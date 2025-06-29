@@ -1,3 +1,4 @@
+//file : utils/sendOtp.js
 const { Resend } = require("resend");
 
 const sendOtpToEmail = async (email, otp) => {

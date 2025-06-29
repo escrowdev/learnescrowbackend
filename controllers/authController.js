@@ -4,27 +4,41 @@ const sendOtpToEmail = require("../utils/sendOtp");
 
 exports.loginOrSignup = async (req, res) => {
   const { email } = req.body;
-  const user = await User.findOne({ email });
+  let user = await User.findOne({ email });
 
-  if (user && user.isVerified) {
-    const token = jwt.sign(
-      { id: user._id, email: user.email },
-      process.env.JWT_SECRET
-    );
-    return res.json({ message: "Login successful", token });
-  }
-
+  // Always generate new OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
-  await User.findOneAndUpdate(
-    { email },
-    { email, otp, otpExpiry, isVerified: false },
-    { upsert: true, new: true }
-  );
+  if (!user) {
+    // New user signup
+    user = await User.create({
+      email,
+      otp,
+      otpExpiry,
+      isVerified: false,
+    });
+    await sendOtpToEmail(email, otp);
+    return res.json({
+      message: "Signup initiated. OTP sent. Please verify to continue.",
+    });
+  }
 
+  // Existing user (verified or not) - always send OTP
+  user.otp = otp;
+  user.otpExpiry = otpExpiry;
+  await user.save();
   await sendOtpToEmail(email, otp);
-  return res.json({ message: "OTP sent to email" });
+
+  if (user.isVerified) {
+    return res.json({
+      message: "OTP sent to your email. Please verify to login.",
+    });
+  } else {
+    return res.json({
+      message: "OTP sent. Please verify your email to complete signup.",
+    });
+  }
 };
 
 exports.verifyOtp = async (req, res) => {
@@ -42,7 +56,12 @@ exports.verifyOtp = async (req, res) => {
 
   const token = jwt.sign(
     { id: user._id, email: user.email },
-    process.env.JWT_SECRET
+    process.env.JWT_SECRET,
+    { expiresIn: "24h" }
   );
-  return res.json({ message: "OTP verified", token });
+
+  return res.json({
+    message: "OTP verified successfully. You are now logged in.",
+    token,
+  });
 };
